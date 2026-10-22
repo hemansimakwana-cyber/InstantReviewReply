@@ -25,7 +25,6 @@ export async function POST(
   if (!userId) return NextResponse.json({ error: "Not connected." }, { status: 401 });
 
   const apiKey = process.env.GEMINI_API_KEY;
-  // FIXED: gemini-2.5-flash does not exist. Use 2.0 or 1.5.
   const modelName = process.env.GEMINI_MODEL || "gemini-2.0-flash"; 
   
   if (!apiKey) {
@@ -93,10 +92,19 @@ export async function POST(
       contents: prompt,
       config: {
         temperature: 0.7,
-        maxOutputTokens: 250,
-        // Removed thinkingConfig unless you specifically use an "-exp-thinking" model
+        // Thinking models (Gemini 2.5+/3.x) count internal reasoning tokens against this
+        // limit, so a small cap truncates the visible reply after a few words.
+        maxOutputTokens: 4096,
       },
     });
+
+    const finishReason = response.candidates?.[0]?.finishReason;
+    if (finishReason === "MAX_TOKENS") {
+      return NextResponse.json(
+        { error: "Gemini reply was cut off (token limit). Please try again." },
+        { status: 502 }
+      );
+    }
 
     const draft = response.text?.trim();
     if (!draft) {
